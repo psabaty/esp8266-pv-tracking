@@ -14,6 +14,7 @@
 FirebaseData fbdo;
 FirebaseAuth auth;
 FirebaseConfig config;
+unsigned long sendDataPrevMillis = 0;
 String uid;
 String databasePath;
 String todaysDate;
@@ -86,7 +87,9 @@ bool sendJsonStringtoFirebase(String jsonString){
   json.toString(Serial, true);
 
   // save to RTDB
-  if(Firebase.ready()){
+  if(Firebase.ready() && (millis() - sendDataPrevMillis > 15000 || sendDataPrevMillis == 0)){
+    sendDataPrevMillis = millis();
+
     Serial.printf("Set json... %s\n", Firebase.RTDB.setJSON(&fbdo, parentPath.c_str(), &json) ? "ok" : fbdo.errorReason().c_str());
     return true;
   }else{
