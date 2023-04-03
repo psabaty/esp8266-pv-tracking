@@ -18,8 +18,7 @@ unsigned long sendDataPrevMillis = 0;
 String uid;
 String databasePath;
 String todaysDate;
-String timePath = "/timestamp";
-unsigned long timestamp;
+unsigned long timestamp = 0;
 struct tm *pTimeStruct;
 
 // Parent Node (to be updated in every loop)
@@ -81,6 +80,7 @@ bool sendJsonStringtoFirebase(String jsonString){
 
   fbRequestContent.clear();
   fbRequestContent.setJsonData(jsonString);
+  String timePath = "/timestamp";
   fbRequestContent.set(timePath, String(timestamp));
 
   // output final json object
@@ -100,7 +100,6 @@ bool sendJsonStringtoFirebase(String jsonString){
 
 
 bool sendJsonStringtoFirestore(String jsonString){
-  timestamp = getTime();
 
   Serial.print(F("Recieved jsonString : "));
   Serial.println(jsonString);
@@ -120,9 +119,18 @@ bool sendJsonStringtoFirestore(String jsonString){
       fieldPath += "/doubleValue";
       fbRequestContent.set(fieldPath,  kv.value().as<double>());
   }
+
+  timestamp = getTime();
+  pTimeStruct = gmtime ((time_t *)&timestamp); 
   fbRequestContent.set("fields/timestamp/integerValue", timestamp);
-  
-  String documentPath =  "UsersData/" + uid + "/pvRecords/" + String(timestamp);
+  fbRequestContent.set("fields/second/integerValue", pTimeStruct->tm_sec);
+  fbRequestContent.set("fields/minute/integerValue", pTimeStruct->tm_min);
+  fbRequestContent.set("fields/hour/integerValue", pTimeStruct->tm_hour);
+  fbRequestContent.set("fields/day/integerValue", pTimeStruct->tm_mday);
+  fbRequestContent.set("fields/month/integerValue", pTimeStruct->tm_mon+1);
+  fbRequestContent.set("fields/year/integerValue", pTimeStruct->tm_year+1900);
+
+  String documentPath = "UsersData/" + uid + "/pvRecords/" + String(timestamp);
   Serial.print(F("documentPath : "));
   Serial.println(documentPath);
   
@@ -176,9 +184,8 @@ void setup(){
   config.max_token_generation_retry = 5;
 
   // timestamp test
-  timestamp = getTime();
   Serial.print("timestamp: ");
-  Serial.println(timestamp);
+  Serial.println(getTime());
 
   // Initialize the library with the Firebase authen and config
   Firebase.begin(&config, &auth);
