@@ -24,7 +24,7 @@ struct tm *pTimeStruct;
 
 // Parent Node (to be updated in every loop)
 String parentPath;
-FirebaseJson json;
+FirebaseJson fbRequestContent;
 DynamicJsonDocument jsonObject(1024);
 String serialInputBuffer;
 
@@ -75,23 +75,76 @@ bool sendJsonStringtoFirebase(String jsonString){
   Serial.print(F("todaysDate : "));
   Serial.println(todaysDate);
 
-  parentPath= databasePath + "/" + todaysDate + "/" + String(timestamp);
+  parentPath= "/UsersData/" + uid + "/pvTracks/" + todaysDate + "/" + String(timestamp);
   Serial.print(F("parentPath : "));
   Serial.println(parentPath);
 
-  json.clear();
-  json.setJsonData(jsonString);
-  json.set(timePath, String(timestamp));
+  fbRequestContent.clear();
+  fbRequestContent.setJsonData(jsonString);
+  fbRequestContent.set(timePath, String(timestamp));
 
   // output final json object
-  json.toString(Serial, true);
+  fbRequestContent.toString(Serial, true);
 
   // save to RTDB
   if(Firebase.ready() && (millis() - sendDataPrevMillis > 15000 || sendDataPrevMillis == 0)){
     sendDataPrevMillis = millis();
 
-    Serial.printf("Set json... %s\n", Firebase.RTDB.setJSON(&fbdo, parentPath.c_str(), &json) ? "ok" : fbdo.errorReason().c_str());
+    Serial.printf("Set json... %s\n", Firebase.RTDB.setJSON(&fbdo, parentPath.c_str(), &fbRequestContent) ? "ok" : fbdo.errorReason().c_str());
     return true;
+  }else{
+    Serial.println(F("Firebase not ready."));
+    return false;
+  }
+}
+
+
+bool sendJsonStringtoFirestore(String jsonString){
+  timestamp = getTime();
+
+  Serial.print(F("Recieved jsonString : "));
+  Serial.println(jsonString);
+
+  DeserializationError jsonError = deserializeJson(jsonObject, jsonString);
+  if (jsonError) {
+    Serial.print(F("deserializeJson() failed: "));
+    Serial.println(jsonError.f_str());
+    return false;
+  }
+
+  //FirebaseJson content;
+  fbRequestContent.clear();
+  for (JsonPair kv : jsonObject.as<JsonObject>()) {
+      String fieldPath = "fields/";
+      fieldPath += kv.key().c_str();
+      fieldPath += "/doubleValue";
+      fbRequestContent.set(fieldPath,  kv.value().as<double>());
+  }
+  fbRequestContent.set("fields/timestamp/integerValue", timestamp);
+  
+  String documentPath =  "UsersData/" + uid + "/pvRecords/" + String(timestamp);
+  Serial.print(F("documentPath : "));
+  Serial.println(documentPath);
+  
+  fbRequestContent.toString(Serial, true);
+
+  // save to Firestore
+  if(Firebase.ready() && (millis() - sendDataPrevMillis > 3000 || sendDataPrevMillis == 0)){
+    sendDataPrevMillis = millis();
+
+        Serial.print("Create a document... ");
+
+        if (Firebase.Firestore.patchDocument(&fbdo, FIREBASE_PROJECT_ID, "", documentPath.c_str(), fbRequestContent.raw(), "", false)){
+            
+            Serial.println("request sent.");
+            Serial.printf("ok\n%s\n\n", fbdo.payload().c_str());
+            return true;
+        }else{
+            Serial.println("Error.");
+            Serial.println(fbdo.errorReason());
+            return false;
+        }
+        
   }else{
     Serial.println(F("Firebase not ready."));
     return false;
@@ -140,10 +193,6 @@ void setup(){
   uid = auth.token.uid.c_str();
   Serial.print("User UID: ");
   Serial.println(uid);
-
-  // Update database path
-  databasePath = "/UsersData/" + uid + "/pvTracks";
-  
 }
 
 void loop(){
@@ -153,7 +202,8 @@ void loop(){
 
     serialInputBuffer = Serial.readStringUntil('\n');
     if(serialInputBuffer.length() > 0) {
-      sendJsonStringtoFirebase(serialInputBuffer);
+      //sendJsonStringtoFirebase(serialInputBuffer);
+      sendJsonStringtoFirestore(serialInputBuffer);
     }
   }
   digitalWrite(BUILTIN_LED, LOW); 
