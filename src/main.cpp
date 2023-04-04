@@ -3,10 +3,10 @@
 #include <Firebase_ESP_Client.h>
 #include <Wire.h>
 #include <ArduinoJson.h>
-#include <NTPClient.h>
-#include <WiFiUdp.h>
+//#include <NTPClient.h>
+//#include <WiFiUdp.h>
 #include "addons/TokenHelper.h"
-#include "addons/RTDBHelper.h"
+//#include "addons/RTDBHelper.h"
 
 // #defines WIFI_SSID, WIFI_PASSWORD, API_KEY, USER_EMAIL, USER_PASSWORD, DATABASE_URL
 #include "secrets.h"
@@ -16,19 +16,13 @@ FirebaseAuth auth;
 FirebaseConfig config;
 unsigned long sendDataPrevMillis = 0;
 String uid;
-String databasePath;
-String todaysDate;
-unsigned long timestamp = 0;
-struct tm *pTimeStruct;
+String documentPath;
 
 // Parent Node (to be updated in every loop)
 String parentPath;
 FirebaseJson fbRequestContent;
 DynamicJsonDocument jsonObject(1024);
 String serialInputBuffer;
-
-WiFiUDP ntpUDP;
-NTPClient timeClient(ntpUDP, "pool.ntp.org");
 
 // Initialize WiFi
 void initWiFi() {
@@ -41,63 +35,6 @@ void initWiFi() {
   Serial.println(WiFi.localIP());
   Serial.println();
 }
-
-// Function that gets current epoch time
-unsigned long getTime() {
-  timeClient.update();
-  unsigned long now = timeClient.getEpochTime();
-  return now;
-}
-
-bool sendJsonStringtoFirebase(String jsonString){
-
-  Serial.print(F("Recieved jsonString : "));
-  Serial.println(jsonString);
-
-  DeserializationError jsonError = deserializeJson(jsonObject, jsonString);
-  if (jsonError) {
-    Serial.print(F("deserializeJson() failed: "));
-    Serial.println(jsonError.f_str());
-    return false;
-  }
-
-  timestamp = getTime();
-
-
-  time_t epochTime = timeClient.getEpochTime();
-  Serial.print("Epoch Time: ");
-  Serial.println(epochTime);
-  
-  pTimeStruct = gmtime ((time_t *)&epochTime); 
-
-  todaysDate = String(pTimeStruct->tm_year+1900) + "-" + String(pTimeStruct->tm_mon+1) + "-" + String(pTimeStruct->tm_mday);
-  Serial.print(F("todaysDate : "));
-  Serial.println(todaysDate);
-
-  parentPath= "/UsersData/" + uid + "/pvTracks/" + todaysDate + "/" + String(timestamp);
-  Serial.print(F("parentPath : "));
-  Serial.println(parentPath);
-
-  fbRequestContent.clear();
-  fbRequestContent.setJsonData(jsonString);
-  String timePath = "/timestamp";
-  fbRequestContent.set(timePath, String(timestamp));
-
-  // output final json object
-  fbRequestContent.toString(Serial, true);
-
-  // save to RTDB
-  if(Firebase.ready() && (millis() - sendDataPrevMillis > 15000 || sendDataPrevMillis == 0)){
-    sendDataPrevMillis = millis();
-
-    Serial.printf("Set json... %s\n", Firebase.RTDB.setJSON(&fbdo, parentPath.c_str(), &fbRequestContent) ? "ok" : fbdo.errorReason().c_str());
-    return true;
-  }else{
-    Serial.println(F("Firebase not ready."));
-    return false;
-  }
-}
-
 
 bool sendJsonStringtoFirestore(String jsonString){
 
@@ -119,20 +56,6 @@ bool sendJsonStringtoFirestore(String jsonString){
       fieldPath += "/doubleValue";
       fbRequestContent.set(fieldPath,  kv.value().as<double>());
   }
-
-  timestamp = getTime();
-  pTimeStruct = gmtime ((time_t *)&timestamp); 
-  fbRequestContent.set("fields/timestamp/integerValue", timestamp);
-  fbRequestContent.set("fields/second/integerValue", pTimeStruct->tm_sec);
-  fbRequestContent.set("fields/minute/integerValue", pTimeStruct->tm_min);
-  fbRequestContent.set("fields/hour/integerValue", pTimeStruct->tm_hour);
-  fbRequestContent.set("fields/day/integerValue", pTimeStruct->tm_mday);
-  fbRequestContent.set("fields/month/integerValue", pTimeStruct->tm_mon+1);
-  fbRequestContent.set("fields/year/integerValue", pTimeStruct->tm_year+1900);
-
-  String documentPath = "UsersData/" + uid + "/pvRecords/" + String(timestamp);
-  Serial.print(F("documentPath : "));
-  Serial.println(documentPath);
   
   fbRequestContent.toString(Serial, true);
 
@@ -162,14 +85,12 @@ bool sendJsonStringtoFirestore(String jsonString){
 
 void setup(){
   Serial.begin(9600);
-  serialInputBuffer.reserve(255);
+  serialInputBuffer.reserve(512);
   pinMode(BUILTIN_LED, OUTPUT);
 
-  delay(5000);
+  //delay(5000);
 
   initWiFi();
-  timeClient.begin();
-
   config.api_key = API_KEY;
   auth.user.email = USER_EMAIL;
   auth.user.password = USER_PASSWORD;
@@ -182,10 +103,6 @@ void setup(){
   config.token_status_callback = tokenStatusCallback; //see addons/TokenHelper.h
   // Assign the maximum retry of token generation
   config.max_token_generation_retry = 5;
-
-  // timestamp test
-  Serial.print("timestamp: ");
-  Serial.println(getTime());
 
   // Initialize the library with the Firebase authen and config
   Firebase.begin(&config, &auth);
@@ -200,6 +117,10 @@ void setup(){
   uid = auth.token.uid.c_str();
   Serial.print("User UID: ");
   Serial.println(uid);
+
+  documentPath = "UsersData/" + uid + "/pvRecords/latest";
+  Serial.print(F("documentPath : "));
+  Serial.println(documentPath);
 }
 
 void loop(){
@@ -209,7 +130,6 @@ void loop(){
 
     serialInputBuffer = Serial.readStringUntil('\n');
     if(serialInputBuffer.length() > 0) {
-      //sendJsonStringtoFirebase(serialInputBuffer);
       sendJsonStringtoFirestore(serialInputBuffer);
     }
   }
